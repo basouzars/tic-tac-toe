@@ -1,9 +1,16 @@
+require './board'
+require './player/human'
+require './player/bot'
+
 class Game
+  X = 'X'.freeze
+  O = 'O'.freeze
 
+  PLAY_AGAIN_VALUE = '0'.freeze
+  EXIT_VALUE = '-1'.freeze
+  EXIT_STRING = "Entering #{EXIT_VALUE} will exit the game.".freeze
 
-  EXIT_VALUE = '-1'
-  EXIT_STRING = "Entering #{EXIT_VALUE} will exit the game."
-
+  CORNERS = [0, 2, 6, 8].freeze
   WINNER_SPOTS = [
     # rows
     [0, 1, 2],
@@ -16,46 +23,41 @@ class Game
     # diagonals
     [0, 3, 6],
     [1, 4, 7]
-  ]
+  ].freeze
 
   MODES = {
     '1' => :humans,
     '2' => :human_computer,
     '3' => :computers
-  }
+  }.freeze
 
   LEVELS = {
     '1' => :easy,
     '2' => :medium,
     '3' => :hard
-  }
+  }.freeze
+
+  attr_reader :board
+  attr_reader :level
 
   def initialize
-    @player_1 = X # the computer's marker
-    @player_2 = O # the user's marker
-    @next_player = @player_1
+    @ties = 0
+    @player1_wins = 0
+    @player2_wins = 0
   end
 
   def start_game
-    set_game_mode
+    loop do
+      initial_configurations
 
-    if @mode != :humans
-      set_computers_level
+      until game_over?
+        @board.show
+        next_player_move
+      end
+
+      game_end
     end
-
-    set_moves_order
-
-    until game_over?
-      show_board
-      players_moves
-    end
-
-    clear_unplayed_spots
-    show_board
-    puts result
   end
-
-  private
 
   def get_valid_input(allowed_inputs)
     all_inputs = allowed_inputs + [EXIT_VALUE]
@@ -70,7 +72,40 @@ class Game
     input
   end
 
+  def game_over?
+    return true if @board.empty_spots.empty?
+
+    player_wins?(@player1) || player_wins?(@player2)
+  end
+
+  private
+
+  def initial_configurations
+    set_board
+    set_game_mode
+    set_computers_level if @mode != :humans
+    set_players
+    @next_player = @player1
+  end
+
+  def game_end
+    @board.clear_unplayed_spots
+    @board.show
+    puts result
+    show_scores
+
+    puts
+    puts EXIT_STRING
+    print "Enter #{PLAY_AGAIN_VALUE} to play again: "
+    get_valid_input([PLAY_AGAIN_VALUE])
+  end
+
+  def set_board
+    @board = Board.new
+  end
+
   def set_game_mode
+    puts
     puts 'Game modes:'
     puts '1 - Human x Human'
     puts '2 - Human x Computer'
@@ -78,22 +113,12 @@ class Game
     puts EXIT_STRING
     print 'Select one: '
 
-    input = get_valid_input(MODES.keys, )
+    input = get_valid_input(MODES.keys)
     @mode = MODES[input]
   end
 
-  def set_moves_order
-    @moves_order = case @mode
-                   when :humans
-                     [:human, :human]
-                    when :human_computer
-                      [:human, :computer]
-                    when :computers
-                      [:computer, :computer]
-                    end
-  end
-
   def set_computers_level
+    puts
     puts 'Computer(s) difficult:'
     puts '1 - Easy'
     puts '2 - Medium'
@@ -102,75 +127,77 @@ class Game
     print 'Select one: '
 
     input = get_valid_input(LEVELS.keys)
-    @computer_level = LEVELS[input]
+    @level = LEVELS[input]
   end
 
-
-  def empty_spots
-    @board.select {|spot| ![@player_1, @player_2].include?(spot)}
+  def set_players
+    class_player1, class_player2 = case @mode
+                                   when :humans
+                                     [Human, Human]
+                                   when :human_computer
+                                     human_computer_play_order
+                                   when :computers
+                                     [Bot, Bot]
+                                   end
+    @player1 = class_player1.new(X, self)
+    @player2 = class_player2.new(O, self)
   end
 
-  def player_wins?(player_mark)
+  def human_player_position
+    positions = %w[1 2]
+    puts
+    puts 'Markers:'
+    puts "1 - #{X}"
+    puts "2 - #{O}"
+    puts EXIT_STRING
+    print 'Enter your marker number: '
+    get_valid_input(positions)
+  end
+
+  def human_computer_play_order
+    human_player_position == '1' ? [Human, Bot] : [Bot, Human]
+  end
+
+  def player_wins?(player)
     WINNER_SPOTS.any? do |winner_spots|
-      board_spot = winner_spots.map { |spot| @board[spot] }
-      board_spot.uniq == [player_mark]
+      board_spot = winner_spots.map { |spot| @board.spots[spot] }
+      board_spot.uniq == [player.mark]
     end
   end
 
-  def show_board
-    puts
-    puts " #{@board[0]} | #{@board[1]} | #{@board[2]}"
-    puts '===+===+==='
-    puts " #{@board[3]} | #{@board[4]} | #{@board[5]}"
-    puts '===+===+==='
-    puts " #{@board[6]} | #{@board[7]} | #{@board[8]}"
-  end
+  def next_player_move
+    print "#{@next_player} enter [0-8]: "
 
-  def players_moves
-    print "Player \"#{@next_player}\" enter [0-8]: "
+    @next_player.play_turn
 
-    next_move_method = 
-
-    send(next_move_method, @next_player)
-
-    @next_player = if @next_player == @player_1
-                     @player_2
+    @next_player = if @next_player == @player1
+                     @player2
                    else
-                     @player_1
+                     @player1
                    end
   end
 
-  def computer_move(player_mark)
-    computer_level_move = case @computer_level
-                          when :easy
-                            'computer_easy_spot'
-                          when :Medium
-                            'computer_medium_spot'
-                          when :hard
-                            'computer_hard_spot'
-                          end
-
-    chosen_spot = send(computer_level_move, player_mark)
-    puts chosen_spot
-  end
-
-  def all_moves_made?
-    @board.all? { |s| s == X || s == O }
-  end
-
-  def human_move(player_mark)
-    spot = get_valid_input(empty_spots)
-    @board[spot] = player_mark
-  end
-
-  def clear_unplayed_spots
-    @board.map! { |spot| [@player_1, @player_2].include?(spot) ? spot : ' ' }
-  end
-
   def result
-    return "Player \"#{@player_1}\" WINS ! " if player_wins?(@player_1)
-    return "Player \"#{@player_2}\" WINS ! " if player_wins?(@player_2)
-    "GAME TIED !"
+    if player_wins?(@player1)
+      @player1_wins += 1
+      return "#{@player1} WINS ! "
+    end
+
+    if player_wins?(@player2)
+      @player2_wins += 1
+      return "#{@player2} WINS ! "
+    end
+
+    @ties += 1
+    'GAME TIED !'
+  end
+
+  def show_scores
+    puts
+    puts 'SCORES:'
+    puts "Ties: #{@ties}"
+    puts "#{@player1} wins: #{@player1_wins}"
+    puts "#{@player2} wins: #{@player2_wins}"
   end
 end
 
